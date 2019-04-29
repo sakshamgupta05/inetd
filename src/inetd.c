@@ -114,7 +114,7 @@ void openSocket(struct service *service) {
   hints.ai_family = AF_UNSPEC;
   hints.ai_flags = AI_PASSIVE;
   if (getaddrinfo(NULL, service -> line[0], &hints, &result) != 0) {
-    perror("getaddrinfo");
+    syslog(LOG_ERR, "Error from getaddrinfo(): %m");
     exit(EXIT_FAILURE);
   }
 
@@ -124,7 +124,7 @@ void openSocket(struct service *service) {
     if (sfd == -1)
       continue;
     if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) == -1) {
-      perror("setsockopt");
+      syslog(LOG_ERR, "Error from setsocketopt(): %m");
       exit(EXIT_FAILURE);
     }
     if (bind(sfd, rp -> ai_addr, rp -> ai_addrlen) == 0)
@@ -132,11 +132,11 @@ void openSocket(struct service *service) {
     close(sfd);
   }
   if (rp == NULL) {
-    printf("Could not bind socket to any address\n");
+    syslog(LOG_ERR, "Could not bind socket to any address");
     exit(EXIT_FAILURE);
   }
   if (rp -> ai_socktype == SOCK_STREAM && listen(sfd, SOMAXCONN) == -1) {
-    perror("listen");
+    syslog(LOG_ERR, "Error from listen(): %m");
     exit(EXIT_FAILURE);
   }
 
@@ -172,15 +172,15 @@ void setupFd(int nfds, int fd) {
     close(fdi);
   }
   if (dup2(fd, STDIN_FILENO) != STDIN_FILENO) {
-    perror("dup2");
+    syslog(LOG_ERR, "Error from dup2(): %m");
     exit(EXIT_FAILURE);
   }
   if (dup2(fd, STDOUT_FILENO) != STDOUT_FILENO) {
-    perror("dup2");
+    syslog(LOG_ERR, "Error from dup2(): %m");
     exit(EXIT_FAILURE);
   }
   if (dup2(fd, STDERR_FILENO) != STDERR_FILENO) {
-    perror("dup2");
+    syslog(LOG_ERR, "Error from dup2(): %m");
     exit(EXIT_FAILURE);
   }
   if (fd > 2) {
@@ -208,7 +208,7 @@ void sigChldHandler(int sig) {
     }
   }
   if (childPid == -1 && errno != ECHILD) {
-    perror("waitpid");
+    syslog(LOG_ERR, "Error from waitpid(): %m");
   }
 }
 
@@ -242,12 +242,11 @@ int main(int argc, char *argv[]) {
   int nfds = 0;
   FD_ZERO(&readfds);
 
-  /* daemon(0, 0); */
+  daemon(0, 0);
 
   FILE *cf = fopen(confStr, "r");
   if (cf == NULL) {
-    /* syslog(LOG_PERROR, "Cannot open configuration file"); */
-    printf("Cannot open configuration file\n");
+    syslog(LOG_ERR, "Cannot open configuration file");
     exit(EXIT_FAILURE);
   }
 
@@ -263,7 +262,12 @@ int main(int argc, char *argv[]) {
   }
 
   for (;;) {
-    select(nfds, &readfds, NULL, NULL, 0);
+    if (select(nfds, &readfds, NULL, NULL, 0) == -1) {
+      if (errno == EINTR) continue;
+
+      syslog(LOG_ERR, "Error from select(): %m");
+      exit(EXIT_FAILURE);
+    }
     for (int fd = 0; fd < nfds; fd++) {
       if (FD_ISSET(fd, &readfds)) {
         struct service *service = findServiceFromFd(fd);
@@ -275,13 +279,13 @@ int main(int argc, char *argv[]) {
           } else {
             cfd = accept(fd, NULL, NULL);
             if (cfd == -1) {
-              perror("accept");
+              syslog(LOG_ERR, "Error from accept(): %m");
               exit(EXIT_FAILURE);
             }
           }
           pid_t pid = fork();
           if (pid < 0) {
-            perror("fork");
+            syslog(LOG_ERR, "Error from fork(): %m");
             exit(EXIT_FAILURE);
           } else if (pid == 0) {
             setUGId(service);
@@ -292,7 +296,7 @@ int main(int argc, char *argv[]) {
               setupFd(nfds, cfd);
             }
             execv(service -> line[5], service -> line + 5);
-            perror("execv");
+            syslog(LOG_ERR, "Error from execv(): %m");
             _exit(EXIT_FAILURE);
           }
           if (!service -> wait) {
@@ -305,13 +309,13 @@ int main(int argc, char *argv[]) {
           }
           int pid = fork();
           if (pid < 0) {
-            perror("fork");
+            syslog(LOG_ERR, "Error from fork(): %m");
             exit(EXIT_FAILURE);
           } else if (pid == 0) {
             setUGId(service);
             setupFd(nfds, fd);
             execv(service -> line[5], service -> line + 5);
-            perror("execv");
+            syslog(LOG_ERR, "Error from execv(): %m");
             _exit(EXIT_FAILURE);
           }
           if (service -> wait) {
@@ -321,6 +325,4 @@ int main(int argc, char *argv[]) {
       }
     }
   }
-
-  return 0;
 }
