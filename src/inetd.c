@@ -66,6 +66,7 @@ struct service* getService(char **line) {
 
   service -> uid = -1;
   service -> gid = -1;
+  service -> pid = -1;
 
   int name_len = strlen(line[4]);
   char name[name_len + 1];
@@ -118,7 +119,7 @@ void openSocket(struct service *service) {
   }
 
   optval = 1;
-  for (rp = result; rp != NULL; rp = rp->ai_next) {
+  for (rp = result; rp != NULL; rp = rp -> ai_next) {
     sfd = socket(rp -> ai_family, rp -> ai_socktype | SOCK_NONBLOCK, rp -> ai_protocol);
     if (sfd == -1)
       continue;
@@ -138,14 +139,15 @@ void openSocket(struct service *service) {
     perror("listen");
     exit(EXIT_FAILURE);
   }
-  freeaddrinfo(result);
 
   service -> type = rp -> ai_socktype;
   service -> fd = sfd;
+  freeaddrinfo(result);
 }
 
 char** parseLine(char *buf) {
   int line_len = strlen(buf);
+  if (buf[line_len - 1] == '\n') buf[line_len - 1] = '\0';
   char *lineStr = malloc(sizeof(char) * (line_len + 1));
   strcpy(lineStr, buf);
 
@@ -158,11 +160,9 @@ char** parseLine(char *buf) {
   char **lp = line;
   *lp = strtok(lineStr, " \t"); 
   while (*lp != NULL) { 
-    printf("%s\n", *lp); 
     lp++;
     *lp = strtok(NULL, " \t"); 
   }
-  lp = NULL;
   return line;
 }
 
@@ -286,12 +286,14 @@ int main(int argc, char *argv[]) {
           } else if (pid == 0) {
             setUGId(service);
             if (service -> wait) {
-              setupFd(nfds, fd);
               service -> pid = getpid();
+              setupFd(nfds, fd);
             } else {
               setupFd(nfds, cfd);
             }
             execv(service -> line[5], service -> line + 5);
+            perror("execv");
+            _exit(EXIT_FAILURE);
           }
           if (!service -> wait) {
             close(cfd);
@@ -307,11 +309,13 @@ int main(int argc, char *argv[]) {
             exit(EXIT_FAILURE);
           } else if (pid == 0) {
             setUGId(service);
-            if (service -> wait) {
-              setupFd(nfds, fd);
-              service -> pid = getpid();
-            }
+            setupFd(nfds, fd);
             execv(service -> line[5], service -> line + 5);
+            perror("execv");
+            _exit(EXIT_FAILURE);
+          }
+          if (service -> wait) {
+            service -> pid = pid;
           }
         }
       }
