@@ -262,14 +262,15 @@ int main(int argc, char *argv[]) {
   }
 
   for (;;) {
-    if (select(nfds, &readfds, NULL, NULL, 0) == -1) {
+    fd_set readfdsDup = readfds;
+    if (select(nfds, &readfdsDup, NULL, NULL, 0) == -1) {
       if (errno == EINTR) continue;
 
       syslog(LOG_ERR, "Error from select(): %m");
       exit(EXIT_FAILURE);
     }
     for (int fd = 0; fd < nfds; fd++) {
-      if (FD_ISSET(fd, &readfds)) {
+      if (FD_ISSET(fd, &readfdsDup)) {
         struct service *service = findServiceFromFd(fd);
 
         if (service -> type == SOCK_STREAM) {
